@@ -1,27 +1,34 @@
 import 'dotenv/config';
 import { createServer } from 'node:http';
 import { createDatabasePool } from './config/database';
-import { ConfirmacionReservaListener } from './consumers/confirmacion/ConfirmacionReservaListener';
-import { DeadLetterListener } from './consumers/dlq/DeadLetterListener';
-import { crearCanalesEnvio } from './consumers/notificaciones/canalesEnvio';
-import { NotificacionListener } from './consumers/notificaciones/NotificacionListener';
+import { ErrorListener } from './consumers/dlq/ErrorListener';
+import { AvisoInformeListener } from './consumers/reportes/AvisoInformeListener';
+import { InformeMailListener } from './consumers/reportes/InformeMailListener';
+import { InformePdfListener } from './consumers/reportes/InformePdfListener';
 import { MySqlReporteRepository } from './consumers/reportes/reporteRepository';
-import { ReporteListener } from './consumers/reportes/ReporteListener';
+import { ConfirmacionReservaListener } from './consumers/reservas/ConfirmacionReservaListener';
+import { RegistroReservaListener } from './consumers/reservas/RegistroReservaListener';
 import { log } from './logs/logger';
+import { crearServicioCorreo } from './mail/correo';
 import { ContenedorListeners } from './messaging/ContenedorListeners';
-import { PublicadorDocumentos } from './messaging/publicadorDocumentos';
 import { listenersRegistrados } from './messaging/RabbitListener';
 
 const puerto = Number(process.env.PORT ?? 8084);
 const pool = createDatabasePool();
+const repositorio = new MySqlReporteRepository(pool);
+const correo = crearServicioCorreo();
 const contenedor = new ContenedorListeners(listenersRegistrados);
-const documentos = new PublicadorDocumentos(contenedor);
 
 // Cada instancia registra sus métodos @RabbitListener; el contenedor los suscribe al conectar.
-new ConfirmacionReservaListener(documentos);
-new ReporteListener(new MySqlReporteRepository(pool), documentos);
-new NotificacionListener(crearCanalesEnvio());
-new DeadLetterListener();
+// Usuario: confirmación de la reserva
+new ConfirmacionReservaListener(correo);
+new RegistroReservaListener(repositorio);
+// Admin: informe (fanout -> pdf / aviso, directo -> mail)
+new InformePdfListener(repositorio, contenedor);
+new AvisoInformeListener(correo);
+new InformeMailListener(correo);
+// DLQ
+new ErrorListener();
 
 // /health: 200 solo si hay conexión con RabbitMQ (lo usa el healthcheck de docker-compose).
 const servidor = createServer((solicitud, respuesta) => {

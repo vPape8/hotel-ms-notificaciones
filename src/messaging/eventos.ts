@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ErrorNoRecuperable } from './errores';
 
-// Formato de los mensajes que llegan (de hotel-ms-reservas) y que salen (documento.generado).
+// Formato de los mensajes que llegan (de hotel-ms-reservas) y que salen (informe.generado).
 
 export interface EventoDominio<T> {
 	id: string;
@@ -31,17 +31,16 @@ export interface ReporteSolicitado {
 	solicitadoPor: { nombre?: string; email: string };
 }
 
-export type TipoDocumento = 'CONFIRMACION_RESERVA' | 'INFORME_ADMINISTRACION';
-
-export interface DocumentoGenerado {
-	tipoDocumento: TipoDocumento;
+/** Lo que el listener PDF publica en el exchange directo (EX D) para el listener mail. */
+export interface InformeGenerado {
 	destinatario: { nombre?: string; email: string };
 	asunto: string;
 	mensaje: string;
 	nombreArchivo: string;
 	/** PDF en base64: el mensaje viaja completo, sin depender de un disco compartido. */
 	pdfBase64: string;
-	referencia: string;
+	/** Id del evento reporte.solicitado que originó el informe. */
+	solicitudId: string;
 }
 
 const NOMBRE_ARCHIVO = /^[A-Za-z0-9._-]{1,120}\.pdf$/;
@@ -144,24 +143,17 @@ export function validarReservaCreada(cuerpo: unknown): EventoDominio<ReservaCrea
 	return { ...evento, datos: validarDatosReserva(evento.datos) };
 }
 
-/** La cola de informes recibe los dos tipos de evento. */
-export function validarEventoReporte(cuerpo: unknown): EventoDominio<ReservaCreada> | EventoDominio<ReporteSolicitado> {
-	const evento = sobre(cuerpo, ['reserva.creada', 'reporte.solicitado']);
-	return evento.tipo === 'reserva.creada'
-		? { ...evento, datos: validarDatosReserva(evento.datos) }
-		: { ...evento, datos: validarDatosReporte(evento.datos) };
+export function validarReporteSolicitado(cuerpo: unknown): EventoDominio<ReporteSolicitado> {
+	const evento = sobre(cuerpo, ['reporte.solicitado']);
+	return { ...evento, datos: validarDatosReporte(evento.datos) };
 }
 
-export function validarDocumentoGenerado(cuerpo: unknown): EventoDominio<DocumentoGenerado> {
-	const evento = sobre(cuerpo, ['documento.generado']);
+export function validarInformeGenerado(cuerpo: unknown): EventoDominio<InformeGenerado> {
+	const evento = sobre(cuerpo, ['informe.generado']);
 	const datos = evento.datos;
 	const destinatario = datos.destinatario;
 	if (!esObjeto(destinatario)) {
 		throw new ErrorNoRecuperable('Campo "destinatario" ausente');
-	}
-	const tipoDocumento = texto(datos, 'tipoDocumento');
-	if (tipoDocumento !== 'CONFIRMACION_RESERVA' && tipoDocumento !== 'INFORME_ADMINISTRACION') {
-		throw new ErrorNoRecuperable(`Tipo de documento no soportado: ${tipoDocumento}`);
 	}
 	const nombreArchivo = texto(datos, 'nombreArchivo');
 	if (!NOMBRE_ARCHIVO.test(nombreArchivo)) {
@@ -170,7 +162,6 @@ export function validarDocumentoGenerado(cuerpo: unknown): EventoDominio<Documen
 	return {
 		...evento,
 		datos: {
-			tipoDocumento,
 			destinatario: {
 				nombre: typeof destinatario.nombre === 'string' ? destinatario.nombre : undefined,
 				email: email(destinatario, 'email')
@@ -179,7 +170,7 @@ export function validarDocumentoGenerado(cuerpo: unknown): EventoDominio<Documen
 			mensaje: texto(datos, 'mensaje'),
 			nombreArchivo,
 			pdfBase64: texto(datos, 'pdfBase64'),
-			referencia: texto(datos, 'referencia')
+			solicitudId: texto(datos, 'solicitudId')
 		}
 	};
 }

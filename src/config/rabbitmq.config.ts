@@ -1,6 +1,6 @@
 // Configuración centralizada de RabbitMQ (equivalente a application.yml / clase @Configuration).
-// Los consumidores, la topología y el publicador leen los nombres solo desde aquí.
-// Deben coincidir con hotel-ms-reservas (exchange de reservas y DLX) y con hotel-ms-rabbitmq-admin.
+// Los consumidores, la topología y los publicadores leen los nombres solo desde aquí.
+// Deben coincidir con hotel-ms-reservas (productor) y con hotel-ms-rabbitmq-admin (recursos protegidos).
 
 function numero(variable: string | undefined, porDefecto: number): number {
 	const valor = Number(variable);
@@ -22,40 +22,49 @@ export const rabbitConfig = {
 	},
 
 	exchanges: {
-		/** Topic donde hotel-ms-reservas publica reserva.creada y reporte.solicitado. */
+		/** Topic donde hotel-ms-reservas publica reserva.creada (flujo del usuario). */
 		reservas: process.env.RABBITMQ_EXCHANGE_RESERVAS ?? 'hotel.reservas.exchange',
-		/** Direct donde este servicio publica los PDF generados (paso "GEN PDF -> EX -> Q" del diagrama). */
-		documentos: process.env.RABBITMQ_EXCHANGE_DOCUMENTOS ?? 'hotel.documentos.exchange',
+		/** "EX F" del diagrama: fanout donde hotel-ms-reservas publica reporte.solicitado (flujo del admin). */
+		reportesFanout: process.env.RABBITMQ_EXCHANGE_REPORTES_FANOUT ?? 'hotel.reportes.fanout',
+		/** "EX D" del diagrama: direct donde el listener PDF publica el informe generado. */
+		reportesDirect: process.env.RABBITMQ_EXCHANGE_REPORTES_DIRECT ?? 'hotel.reportes.direct',
 		/** Direct que deriva cada mensaje a la cola de reintento de su cola original. */
 		reintentos: process.env.RABBITMQ_EXCHANGE_REINTENTOS ?? 'hotel.reintentos.exchange',
-		/** Direct: dead-letter exchange compartido. */
+		/** "dlx" del diagrama: dead-letter exchange compartido por todas las colas. */
 		deadLetter: process.env.RABBITMQ_EXCHANGE_DLX ?? 'hotel.dlx'
 	},
 
 	queues: {
-		/** Cola 1: confirmación de la reserva al huésped. */
+		// Flujo del usuario: confirmación de la reserva por correo.
 		confirmacion: 'hotel.reservas.confirmacion.queue',
-		/** Cola 2: informes para administración (registra reservas y atiende solicitudes de informe). */
-		reportes: 'hotel.reportes.queue',
-		/** Envío de los PDF generados por las dos colas anteriores. */
-		notificaciones: 'hotel.notificaciones.queue',
+		/** Guarda una copia de cada reserva en MySQL para poder calcular los informes del admin. */
+		registro: 'hotel.reservas.registro.queue',
 
-		confirmacionDlq: 'hotel.reservas.confirmacion.dlq',
-		reportesDlq: 'hotel.reportes.dlq',
-		notificacionesDlq: 'hotel.notificaciones.dlq',
-		/** La declara hotel-ms-reservas: mensajes que el broker no pudo enrutar al publicarlos. */
-		noEntregadosDlq: 'hotel.no-entregados.dlq'
+		// Flujo del admin (diagrama del profe): informe de reservas.
+		/** Cola del fanout -> listener pdf. */
+		informePdf: 'hotel.reportes.pdf.queue',
+		/** Cola del fanout -> listener mail (aviso "tu informe se está generando"). Es la que falla en la demo. */
+		informeAviso: 'hotel.reportes.aviso.queue',
+		/** Cola del exchange directo -> listener mail que envía el PDF. */
+		informeMail: 'hotel.reportes.mail.queue',
+
+		/** "dlq" del diagrama: única DLQ, la consume el listener error. */
+		dlq: 'hotel.dlq'
 	},
 
 	routingKeys: {
 		reservaCreada: 'reserva.creada',
-		reporteSolicitado: 'reporte.solicitado',
-		documentoGenerado: 'documento.generado',
-
-		confirmacionDead: 'confirmacion.dead',
-		reportesDead: 'reportes.dead',
-		notificacionesDead: 'notificaciones.dead',
+		/** Routing key del exchange directo (flecha "rk" del diagrama). */
+		informeGenerado: 'informe.generado',
+		/** Todas las colas mandan sus mensajes muertos al DLX con esta routing key. */
+		mensajeMuerto: 'mensaje.muerto',
+		/** El productor manda aquí lo que el broker le devolvió por no tener cola destino. */
 		noEntregado: 'mensaje.no-entregado'
+	},
+
+	/** Falla simulada para la demo: el aviso al admin falla si su email termina con este dominio. */
+	falloSimulado: {
+		dominio: process.env.SIMULAR_FALLO_DOMINIO ?? '@falla.test'
 	}
 } as const;
 

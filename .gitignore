@@ -4,5 +4,6 @@ dist/
 .env.*
 !.env.example
 coverage/
-documentos/
-logs/
+# Solo las carpetas de salida en la raíz (no src/logs/).
+/documentos/
+/logs/

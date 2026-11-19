@@ -7,6 +7,7 @@ import { InformeMailListener } from './consumers/reportes/InformeMailListener';
 import { InformePdfListener } from './consumers/reportes/InformePdfListener';
 import { MySqlReporteRepository } from './consumers/reportes/reporteRepository';
 import { ConfirmacionReservaListener } from './consumers/reservas/ConfirmacionReservaListener';
+import { EstadoReservaListener } from './consumers/reservas/EstadoReservaListener';
 import { RegistroReservaListener } from './consumers/reservas/RegistroReservaListener';
 import { log } from './logs/logger';
 import { crearServicioCorreo } from './mail/correo';
@@ -20,14 +21,15 @@ const correo = crearServicioCorreo();
 const contenedor = new ContenedorListeners(listenersRegistrados);
 
 // Cada instancia registra sus métodos @RabbitListener; el contenedor los suscribe al conectar.
-// Usuario: confirmación de la reserva
+// Usuario: confirmación de la reserva, aviso de cada cambio de estado y copia para el informe
 new ConfirmacionReservaListener(correo);
+new EstadoReservaListener(correo);
 new RegistroReservaListener(repositorio);
 // Admin: informe (fanout -> pdf / aviso, directo -> mail)
 new InformePdfListener(repositorio, contenedor);
 new AvisoInformeListener(correo);
 new InformeMailListener(correo);
-// DLQ
+// DLQ de cada cola
 new ErrorListener();
 
 // /health: 200 solo si hay conexión con RabbitMQ (lo usa el healthcheck de docker-compose).

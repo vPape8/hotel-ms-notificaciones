@@ -12,7 +12,8 @@ export interface ContextoMensaje {
 }
 
 export interface OpcionesListener<T> {
-	cola: string;
+	/** Una cola o varias (como queues = {...} en Spring): el mismo método consume cada una. */
+	cola: string | readonly string[];
 	/** Convierte el JSON recibido al tipo esperado; lanza ErrorNoRecuperable si no es válido. */
 	validar?: (cuerpo: unknown) => T;
 	/** false en los consumidores de DLQ: un error ahí no debe volver a reintentarse. */
@@ -35,13 +36,16 @@ export function RabbitListener<T>(opciones: OpcionesListener<T>) {
 		contexto: ClassMethodDecoratorContext<This, (this: This, datos: T, contexto: ContextoMensaje) => Promise<void>>
 	): void {
 		contexto.addInitializer(function (this: This) {
-			registro.push({
-				nombre: `${this.constructor.name}.${String(contexto.name)}`,
-				cola: opciones.cola,
-				reintentar: opciones.reintentar ?? true,
-				validar: opciones.validar ?? ((cuerpo) => cuerpo),
-				manejar: (datos, ctx) => metodo.call(this, datos as T, ctx)
-			});
+			const colas = typeof opciones.cola === 'string' ? [opciones.cola] : opciones.cola;
+			for (const cola of colas) {
+				registro.push({
+					nombre: `${this.constructor.name}.${String(contexto.name)}`,
+					cola,
+					reintentar: opciones.reintentar ?? true,
+					validar: opciones.validar ?? ((cuerpo) => cuerpo),
+					manejar: (datos, ctx) => metodo.call(this, datos as T, ctx)
+				});
+			}
 		});
 	};
 }

@@ -22,7 +22,7 @@ export const rabbitConfig = {
 	},
 
 	exchanges: {
-		/** Topic donde hotel-ms-reservas publica reserva.creada (flujo del usuario). */
+		/** Topic donde hotel-ms-reservas publica reserva.creada y reserva.estado.<estado> (flujo del usuario). */
 		reservas: process.env.RABBITMQ_EXCHANGE_RESERVAS ?? 'hotel.reservas.exchange',
 		/** "EX F" del diagrama: fanout donde hotel-ms-reservas publica reporte.solicitado (flujo del admin). */
 		reportesFanout: process.env.RABBITMQ_EXCHANGE_REPORTES_FANOUT ?? 'hotel.reportes.fanout',
@@ -30,14 +30,16 @@ export const rabbitConfig = {
 		reportesDirect: process.env.RABBITMQ_EXCHANGE_REPORTES_DIRECT ?? 'hotel.reportes.direct',
 		/** Direct que deriva cada mensaje a la cola de reintento de su cola original. */
 		reintentos: process.env.RABBITMQ_EXCHANGE_REINTENTOS ?? 'hotel.reintentos.exchange',
-		/** "dlx" del diagrama: dead-letter exchange compartido por todas las colas. */
+		/** "dlx" del diagrama: dead-letter exchange (direct). La routing key es el nombre de la cola, así cada una llega a su DLQ. */
 		deadLetter: process.env.RABBITMQ_EXCHANGE_DLX ?? 'hotel.dlx'
 	},
 
 	queues: {
 		// Flujo del usuario: confirmación de la reserva por correo.
 		confirmacion: 'hotel.reservas.confirmacion.queue',
-		/** Guarda una copia de cada reserva en MySQL para poder calcular los informes del admin. */
+		/** Aviso al huésped cuando su reserva cambia de estado (confirmada, cancelada o completada). */
+		estado: 'hotel.reservas.estado.queue',
+		/** Copia de cada reserva (y de sus cambios de estado) en MySQL para calcular el informe PDF del admin. */
 		registro: 'hotel.reservas.registro.queue',
 
 		// Flujo del admin (diagrama del profe): informe de reservas.
@@ -48,16 +50,18 @@ export const rabbitConfig = {
 		/** Cola del exchange directo -> listener mail que envía el PDF. */
 		informeMail: 'hotel.reportes.mail.queue',
 
-		/** "dlq" del diagrama: única DLQ, la consume el listener error. */
-		dlq: 'hotel.dlq'
+		/** Lo que hotel-ms-reservas publicó y el broker devolvió por no tener cola destino (no pertenece a ninguna cola). */
+		noEntregados: 'hotel.no-entregados.dlq'
 	},
 
 	routingKeys: {
 		reservaCreada: 'reserva.creada',
+		/** hotel-ms-reservas publica reserva.estado.confirmada, reserva.estado.cancelada o reserva.estado.completada. */
+		reservaEstado: 'reserva.estado.*',
+		/** Patrón topic que recibe la creación y todos los cambios de estado. */
+		reservaTodas: 'reserva.#',
 		/** Routing key del exchange directo (flecha "rk" del diagrama). */
 		informeGenerado: 'informe.generado',
-		/** Todas las colas mandan sus mensajes muertos al DLX con esta routing key. */
-		mensajeMuerto: 'mensaje.muerto',
 		/** El productor manda aquí lo que el broker le devolvió por no tener cola destino. */
 		noEntregado: 'mensaje.no-entregado'
 	},
@@ -72,3 +76,18 @@ export const rabbitConfig = {
 export function colaReintento(cola: string): string {
 	return `${cola}.retry`;
 }
+
+/** Cada cola de trabajo tiene su propia DLQ con el mismo nombre más ".dlq". */
+export function colaDlq(cola: string): string {
+	return `${cola}.dlq`;
+}
+
+/** Colas de trabajo: cada una con su cola de reintento y su DLQ. */
+export const colasDeTrabajo = [
+	rabbitConfig.queues.confirmacion,
+	rabbitConfig.queues.estado,
+	rabbitConfig.queues.registro,
+	rabbitConfig.queues.informePdf,
+	rabbitConfig.queues.informeAviso,
+	rabbitConfig.queues.informeMail
+] as const;

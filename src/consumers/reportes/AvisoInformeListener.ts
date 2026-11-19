@@ -15,7 +15,7 @@ export class FalloSimuladoError extends Error {
 /**
  * "listener mail" de la cola del fanout: avisa al admin que su informe se está generando.
  * Es la cola que falla en la demo: si el email termina en SIMULAR_FALLO_DOMINIO (@falla.test),
- * se reintenta 3 veces y termina en hotel.dlq, donde lo registra el ErrorListener.
+ * se reintenta 3 veces y termina en hotel.reportes.aviso.queue.dlq, donde lo registra el ErrorListener.
  * La cola PDF recibe la misma copia del fanout y sigue su camino normal.
  */
 export class AvisoInformeListener {

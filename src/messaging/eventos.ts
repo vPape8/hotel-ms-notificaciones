@@ -25,6 +25,14 @@ export interface ReservaCreada {
 	observaciones?: string;
 }
 
+/** reserva.estado.<estado>: la reserva completa ya con su estado nuevo, más el que tenía antes. */
+export interface ReservaEstadoCambiado extends ReservaCreada {
+	estadoAnterior: string;
+}
+
+/** Tipos (y routing keys) que publica hotel-ms-reservas cuando cambia el estado de una reserva. */
+export const TIPOS_CAMBIO_ESTADO = ['reserva.estado.confirmada', 'reserva.estado.cancelada', 'reserva.estado.completada'];
+
 export interface ReporteSolicitado {
 	desde: string;
 	hasta: string;
@@ -141,6 +149,17 @@ function validarDatosReporte(datos: Record<string, unknown>): ReporteSolicitado 
 export function validarReservaCreada(cuerpo: unknown): EventoDominio<ReservaCreada> {
 	const evento = sobre(cuerpo, ['reserva.creada']);
 	return { ...evento, datos: validarDatosReserva(evento.datos) };
+}
+
+export function validarReservaEstadoCambiado(cuerpo: unknown): EventoDominio<ReservaEstadoCambiado> {
+	const evento = sobre(cuerpo, TIPOS_CAMBIO_ESTADO);
+	return { ...evento, datos: { ...validarDatosReserva(evento.datos), estadoAnterior: texto(evento.datos, 'estadoAnterior') } };
+}
+
+/** La cola de registro recibe las dos cosas (binding reserva.#): la creación y cada cambio de estado. */
+export function validarEventoReserva(cuerpo: unknown): EventoDominio<ReservaCreada | ReservaEstadoCambiado> {
+	const tipo = esObjeto(cuerpo) ? cuerpo.tipo : undefined;
+	return typeof tipo === 'string' && TIPOS_CAMBIO_ESTADO.includes(tipo) ? validarReservaEstadoCambiado(cuerpo) : validarReservaCreada(cuerpo);
 }
 
 export function validarReporteSolicitado(cuerpo: unknown): EventoDominio<ReporteSolicitado> {

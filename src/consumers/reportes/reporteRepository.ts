@@ -16,8 +16,12 @@ export interface InformeAdministracion {
 }
 
 export interface ReporteRepository {
-	/** Idempotente: si el mensaje se entrega dos veces, la reserva se guarda una sola vez. */
-	registrarReserva(reserva: ReservaCreada, eventoId: string): Promise<void>;
+	/**
+	 * Idempotente: si el mensaje se entrega dos veces, la reserva se guarda una sola vez.
+	 * Con actualizarEstado=false (reserva.creada) no pisa una fila que ya existe: si un cambio de estado
+	 * llegó antes por un reintento, la creación atrasada no vuelve la reserva a PENDIENTE.
+	 */
+	registrarReserva(reserva: ReservaCreada, eventoId: string, actualizarEstado: boolean): Promise<void>;
 	informe(desde: string, hasta: string): Promise<InformeAdministracion>;
 }
 
@@ -75,13 +79,13 @@ export class MySqlReporteRepository implements ReporteRepository {
 		return this.esquemaListo;
 	}
 
-	async registrarReserva(reserva: ReservaCreada, eventoId: string): Promise<void> {
+	async registrarReserva(reserva: ReservaCreada, eventoId: string, actualizarEstado: boolean): Promise<void> {
 		await this.asegurarEsquema();
 		await this.pool.execute(
 			`INSERT INTO reporte_reservas
 				(codigo, evento_id, id_habitacion, email_huesped, fecha_entrada, fecha_salida, noches, cantidad_huespedes, estado, precio_total, registrada_en)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON DUPLICATE KEY UPDATE estado = VALUES(estado), precio_total = VALUES(precio_total)`,
+			ON DUPLICATE KEY UPDATE ${actualizarEstado ? 'estado = VALUES(estado), evento_id = VALUES(evento_id)' : 'codigo = codigo'}`,
 			[
 				reserva.codigo, eventoId, reserva.idHabitacion, reserva.huesped.email,
 				new Date(reserva.fechaEntrada), new Date(reserva.fechaSalida), noches(reserva.fechaEntrada, reserva.fechaSalida),

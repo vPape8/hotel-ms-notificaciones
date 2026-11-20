@@ -20,6 +20,8 @@ export class ContenedorListeners implements PublicadorMensajes {
 	private canalPublicacion?: ConfirmChannel;
 	private detenido = false;
 	private conectado = false;
+	/** Una sola reconexión pendiente: si el broker corta a medio configurar, "close" y el catch de iniciar() piden reconectar a la vez. */
+	private reconexionPendiente?: NodeJS.Timeout;
 
 	constructor(private readonly listeners: () => readonly ListenerRegistrado[]) {}
 
@@ -39,6 +41,8 @@ export class ContenedorListeners implements PublicadorMensajes {
 
 	async detener(): Promise<void> {
 		this.detenido = true;
+		clearTimeout(this.reconexionPendiente);
+		this.reconexionPendiente = undefined;
 		const conexion = this.conexion;
 		this.conexion = undefined;
 		await conexion?.close().catch(() => undefined);
@@ -122,9 +126,12 @@ export class ContenedorListeners implements PublicadorMensajes {
 	}
 
 	private programarReconexion(): void {
-		if (this.detenido) {
+		if (this.detenido || this.reconexionPendiente) {
 			return;
 		}
-		setTimeout(() => void this.iniciar(), rabbitConfig.reconexionMs);
+		this.reconexionPendiente = setTimeout(() => {
+			this.reconexionPendiente = undefined;
+			void this.iniciar();
+		}, rabbitConfig.reconexionMs);
 	}
 }
